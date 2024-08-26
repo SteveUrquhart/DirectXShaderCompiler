@@ -128,7 +128,16 @@ void DebugTypeVisitor::addDebugTypeForMemberVariables(
 void DebugTypeVisitor::lowerDebugTypeMembers(
     SpirvDebugTypeComposite *debugTypeComposite, const StructType *type,
     const DeclContext *decl) {
-  if (const auto *recordDecl = dyn_cast<RecordDecl>(decl)) {
+  if (const auto *templateDecl = dyn_cast<ClassTemplateSpecializationDecl>(decl)) {
+    unsigned numBases = 0;
+    addDebugTypeForMemberVariables(
+        debugTypeComposite, type,
+        [&templateDecl]() {
+          auto location = templateDecl->getPointOfInstantiation();
+          return location;
+        },
+        numBases);
+  } else if (const auto *recordDecl = dyn_cast<RecordDecl>(decl)) {
     auto fieldIter = recordDecl->field_begin();
     auto fieldEnd = recordDecl->field_end();
     unsigned numBases = 0;
@@ -246,16 +255,21 @@ DebugTypeVisitor::lowerToDebugTypeComposite(const SpirvType *type) {
   auto *debugTypeComposite = createDebugTypeComposite(type, loc, tag);
   setDefaultDebugInfo(debugTypeComposite);
 
+  const StructType *structType = dyn_cast<StructType>(type);
   if (const auto *templateDecl =
           dyn_cast<ClassTemplateSpecializationDecl>(decl)) {
-    // The size of an opaque type must be DebugInfoNone and its name must
-    // start with "@".
-    debugTypeComposite->markAsOpaqueType(getDebugInfoNone());
+    if (!structType) {
+      // The size of an opaque type must be DebugInfoNone and its name must
+      // start with "@".
+      debugTypeComposite->markAsOpaqueType(getDebugInfoNone());
+    } else {
+      lowerDebugTypeMembers(debugTypeComposite, structType, decl);
+    }
     return lowerDebugTypeTemplate(templateDecl, debugTypeComposite);
   } else {
     // If SpirvType is StructType, it is a normal struct/class. Otherwise,
     // it must be an image or a sampler type that is an opaque type.
-    if (const StructType *structType = dyn_cast<StructType>(type))
+    if (structType)
       lowerDebugTypeMembers(debugTypeComposite, structType, decl);
     else
       debugTypeComposite->markAsOpaqueType(getDebugInfoNone());
